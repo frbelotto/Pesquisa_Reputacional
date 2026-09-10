@@ -7,10 +7,9 @@ Aplicação Python que pesquisa marcas parceiras e termos relacionados à reputa
 ```text
 .
 ├── main.py                    # Launcher da aplicação na raiz
-├── bkp/                         # Scripts e notebook legados
 ├── parceiros/
-│   └── marcas.xlsx              # Planilha de entrada
-├── Resultados/                 # Relatórios Excel gerados
+│   └── marcas.xlsx              # Planilha de entrada (Gitignore!)
+├── Resultados/                 # Relatórios Excel gerados (Gitignore!)
 ├── src/pesquisa_reputacional/
 │   ├── __init__.py             # Ponto de entrada público do pacote
 │   ├── app.py                  # Orquestração do fluxo de pesquisa e CLI
