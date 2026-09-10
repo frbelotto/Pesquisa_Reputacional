@@ -1,0 +1,29 @@
+image: ghcr.io/astral-sh/uv:python3.11-bookworm
+
+stages:
+  - test
+
+variables:
+  UV_CACHE_DIR: "$CI_PROJECT_DIR/.uv-cache"
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"
+
+cache:
+  key:
+    files:
+      - uv.lock
+  paths:
+    - .uv-cache/
+
+unit-tests:
+  stage: test
+  script:
+    - uv sync --locked --dev
+    - uv run pytest -q --junitxml=pytest-report.xml
+  artifacts:
+    when: always
+    reports:
+      junit: pytest-report.xml
+    paths:
+      - pytest-report.xml
+    expire_in: 1 week

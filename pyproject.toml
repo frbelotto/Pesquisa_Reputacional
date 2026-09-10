@@ -1,0 +1,26 @@
+[project]
+name = "pesquisa-reputacional"
+version = "0.1.0"
+description = "Bing and Google News reputation research for partner brands"
+readme = "README.md"
+authors = [
+    { name = "F3164582 Fabio Radicchi Belotto", email = "belotto@bb.com.br" }
+]
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "beautifulsoup4>=4.15.0",
+    "fastexcel>=0.16.0",
+    "httpx>=0.28.1",
+    "polars>=1.35.0",
+    "tqdm>=4.67.0",
+    "xlsxwriter>=3.2.9",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.12,<0.13.0"]
+build-backend = "uv_build"
