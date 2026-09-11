@@ -50,25 +50,26 @@ Na raiz do projeto:
 uv sync
 ```
 
-### Opção 2: pip
+### Opção 2: pip no Python da máquina (VDI)
 
-Crie e ative um ambiente virtual e instale o projeto a partir da raiz:
+Em uma VDI dedicada ao projeto, também é possível instalar as dependências
+diretamente no Python disponível na máquina, sem criar `.venv`. Essa opção é
+mais simples para o usuário final. Na raiz do projeto, execute:
 
 ```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install .
+python3.11 -m pip install --user .
 ```
 
-No Windows PowerShell, use o seguinte comando de ativação:
+O parâmetro `--user` instala os pacotes apenas para o usuário atual. Depois da
+instalação, execute normalmente:
 
-```powershell
-.venv\Scripts\Activate.ps1
+```bash
+python3.11 main.py
 ```
 
-O projeto não exige o `uv`; o `pip` lê as dependências diretamente do
-`pyproject.toml`.
+O `pip` lê o `pyproject.toml` durante a instalação: ele usa as dependências
+declaradas no projeto e instala também o pacote local. Portanto, não é
+necessário listar manualmente cada biblioteca usada pela aplicação.
 
 ## Execução
 
@@ -80,10 +81,10 @@ Com `uv`:
 uv run python main.py
 ```
 
-Com o ambiente virtual instalado usando `pip`:
+Com o Python da máquina instalado usando a Opção 2:
 
 ```bash
-python main.py
+python3.11 main.py
 ```
 
 Escolha o mecanismo de notícias com `--source` em qualquer uma das opções
@@ -97,8 +98,8 @@ uv run python main.py --source google
 Ao usar `pip`, os comandos equivalentes são:
 
 ```bash
-python main.py --source bing
-python main.py --source google
+python3.11 main.py --source bing
+python3.11 main.py --source google
 ```
 
 Os mecanismos disponíveis estão organizados da seguinte forma:
