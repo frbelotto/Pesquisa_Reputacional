@@ -20,7 +20,13 @@ Aplicação Python que pesquisa marcas parceiras e termos relacionados à reputa
 │       ├── base.py             # Contrato abstrato NewsSearchEngine
 │       ├── factory.py           # Registro e seleção dos mecanismos
 │       ├── bing.py             # Implementação do Bing News
-│       └── google.py            # Implementação do Google News
+│       ├── google.py            # Implementação do Google News
+│       └── parsing.py           # Helpers compartilhados de parsing
+├── tests/
+│   ├── test_app.py              # Testes do fluxo, cache e relatórios
+│   ├── test_bing.py             # Testes exclusivos do Bing
+│   ├── test_google.py           # Testes exclusivos do Google
+│   └── test_parsing.py          # Testes dos helpers compartilhados
 ├── pyproject.toml              # Metadados e dependências do pacote
 └── uv.lock                     # Versões bloqueadas das dependências
 ```
@@ -102,7 +108,8 @@ src/pesquisa_reputacional/engines/
 ├── base.py       # Contrato abstrato NewsSearchEngine
 ├── factory.py    # Registro e seleção dos mecanismos
 ├── bing.py       # Implementação do Bing News
-└── google.py     # Implementação do Google News
+├── google.py     # Implementação do Google News
+└── parsing.py    # Helpers compartilhados de parsing
 ```
 
 Para adicionar outro provedor, implemente `NewsSearchEngine` nessa pasta e registre a classe em `factory.py`.
@@ -143,5 +150,9 @@ layout, limitação de requisições, CAPTCHA, personalização e políticas de 
 podem afetar os resultados. O relatório registra o mecanismo selecionado, o
 status da coleta e os erros, em vez de tratar falhas técnicas como pesquisas
 sem resultados. Uma falha registrada no cache não será pesquisada novamente
-até a expiração do cache. A coleta deve respeitar os termos e as políticas
-aplicáveis de cada provedor.
+até a expiração do cache. No Bing, o parser ignora links internos de busca e
+prioriza o link externo da notícia quando ele está disponível. No Google, o
+resultado pode conter um link intermediário `news.google.com`; a resolução
+desse redirecionamento para o domínio original da notícia ainda depende do
+acesso ao Google e da resposta do provedor. A coleta deve respeitar os termos
+e as políticas aplicáveis de cada provedor.
