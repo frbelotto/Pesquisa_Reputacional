@@ -8,7 +8,7 @@ import threading
 import time
 from abc import ABC, abstractmethod
 
-import httpx
+import httpx2 as httpx
 
 LOGGER = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class NewsSearchEngine(ABC):
             for attempt in range(self.retries + 1):
                 self._wait()
                 try:
-                    with httpx.Client(timeout=self.timeout, follow_redirects=True, proxy=proxy, trust_env=False) as client:
+                    with self._client(proxy) as client:
                         response = client.get(url, headers=headers)
                     if response.status_code in {429, 500, 502, 503, 504} and attempt < self.retries:
                         time.sleep(2**attempt + random.random())
@@ -61,6 +61,19 @@ class NewsSearchEngine(ABC):
             if self.proxy:
                 LOGGER.warning("Direct %s request failed; trying proxy fallback", self.source_name)
         return None, last_error or "Unknown HTTP error"
+
+    def _client(self, proxy: str | None) -> httpx.Client:
+        """Create an HTTPX2 client while keeping proxy setup in one place."""
+        options: dict[str, object] = {
+            "timeout": self.timeout,
+            "follow_redirects": True,
+            "trust_env": False,
+        }
+        if proxy:
+            options["mounts"] = {
+                "all://": httpx.HTTPTransport(proxy=proxy),
+            }
+        return httpx.Client(**options)
 
     def _wait(self) -> None:
         """Enforce the configured delay between requests."""

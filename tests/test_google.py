@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-import httpx
+import httpx2 as httpx
 import pytest
 
 from pesquisa_reputacional.engines.google import GoogleNewsClient, parse_google_articles
@@ -28,7 +28,7 @@ class MockHttpClient:
     fail_for_proxy = False
 
     def __init__(self, **kwargs: Any) -> None:
-        self.proxy = kwargs.get("proxy")
+        self.uses_proxy = bool(kwargs.get("mounts"))
         type(self).instances.append(self)
 
     def __enter__(self) -> "MockHttpClient":
@@ -38,7 +38,7 @@ class MockHttpClient:
         return None
 
     def get(self, url: str, **_kwargs: Any) -> httpx.Response:
-        if self.error is not None and (self.proxy is None or self.fail_for_proxy):
+        if self.error is not None and (not self.uses_proxy or self.fail_for_proxy):
             request = httpx.Request("GET", url)
             raise httpx.ConnectError(str(self.error), request=request)
         if self.response is None:
@@ -81,7 +81,7 @@ class TestGoogleEngine:
         assert result[0]["status"] == "success"
         assert result[0]["título"] == "Notícia Google"
         assert result[0]["link"] == "https://news.google.com/articles/teste"
-        assert [instance.proxy for instance in MockHttpClient.instances] == [None]
+        assert [instance.uses_proxy for instance in MockHttpClient.instances] == [False]
 
     def test_connection_error_without_proxy_returns_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A Google connection error is returned as an audited error record."""
@@ -103,9 +103,9 @@ class TestGoogleEngine:
         result = make_google_client(proxy="http://proxy.test:80").search('"Marca" "fraude"')
 
         assert result[0]["status"] == "success"
-        assert [instance.proxy for instance in MockHttpClient.instances] == [
-            None,
-            "http://proxy.test:80",
+        assert [instance.uses_proxy for instance in MockHttpClient.instances] == [
+            False,
+            True,
         ]
 
     def test_proxy_connection_error_returns_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -118,9 +118,9 @@ class TestGoogleEngine:
 
         assert result[0]["status"] == "error"
         assert "proxy connection failed" in str(result[0]["erro"])
-        assert [instance.proxy for instance in MockHttpClient.instances] == [
-            None,
-            "http://proxy.test:80",
+        assert [instance.uses_proxy for instance in MockHttpClient.instances] == [
+            False,
+            True,
         ]
 
     def test_parser_returns_portuguese_fields(self) -> None:
