@@ -7,7 +7,6 @@ import random
 import threading
 import time
 from abc import ABC, abstractmethod
-from datetime import datetime
 
 import httpx
 
@@ -72,7 +71,12 @@ class NewsSearchEngine(ABC):
             self._last_request = time.monotonic()
 
     @staticmethod
-    def _outcome(query: str, collected: datetime, status: str, http_status: int | None = None, error: str | None = None, article: dict[str, object] | None = None) -> dict[str, object]:
+    def _outcome(
+        status: str,
+        http_status: int | None = None,
+        error: str | None = None,
+        article: dict[str, object] | None = None,
+    ) -> dict[str, object]:
         """Create a normalized result for success, empty, or failed searches."""
         return {
             "título": None,

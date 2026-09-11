@@ -51,7 +51,7 @@ def load_cache(path: Path, max_age_days: int) -> dict[str, list[dict[str, object
 
 
 def append_cache(path: Path, key: str, records: list[dict[str, object]]) -> None:
-    """Persist one completed query before allowing the next result to continue."""
+    """Persist one completed query from the collection coordinator thread."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as cache_file:
         json.dump({"chave": key, "registros": records}, cache_file, ensure_ascii=False)

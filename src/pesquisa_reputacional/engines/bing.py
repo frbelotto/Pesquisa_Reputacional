@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import re
-from datetime import datetime, timedelta
-from email.utils import parsedate_to_datetime
-from urllib.parse import urlencode
+from datetime import datetime
+from urllib.parse import urljoin, urlencode, urlparse
 
 from bs4 import BeautifulSoup, Tag
 
 from .base import NewsSearchEngine
+from .parsing import parse_date, text
 
 
 class BingNewsClient(NewsSearchEngine):
@@ -29,23 +28,17 @@ class BingNewsClient(NewsSearchEngine):
         response, error = self._request(url)
         collected = datetime.now().astimezone()
         if response is None:
-            return [self._outcome(query, collected, "error", error=error)]
+            return [self._outcome("error", error=error)]
         if response.status_code != 200:
             status = "blocked" if response.status_code in {401, 403, 429} else "error"
-            return [self._outcome(query, collected, status, response.status_code, f"HTTP {response.status_code}")]
+            return [self._outcome(status, response.status_code, f"HTTP {response.status_code}")]
         articles = parse_articles(response.text, self.limit, collected)
         if not articles:
-            return [self._outcome(query, collected, "no_results", response.status_code)]
-        return [self._outcome(query, collected, "success", response.status_code, article=article) for article in articles]
-
-
-def text(card: Tag, selectors: tuple[str, ...]) -> str | None:
-    """Return the first non-empty text matching the selectors."""
-    for selector in selectors:
-        node = card.select_one(selector)
-        if node and (value := node.get_text(" ", strip=True)):
-            return value
-    return None
+            return [self._outcome("no_results", response.status_code)]
+        return [
+            self._outcome("success", response.status_code, article=article)
+            for article in articles
+        ]
 
 
 def parse_articles(html: str, limit: int, reference: datetime) -> list[dict[str, object]]:
@@ -55,15 +48,13 @@ def parse_articles(html: str, limit: int, reference: datetime) -> list[dict[str,
     results: list[dict[str, object]] = []
     seen: set[str] = set()
     for card in cards:
-        anchor = card if card.name == "a" else card.select_one("a.title, a[href*='http'], a[href^='/news']")
+        anchor = _article_anchor(card)
         if not anchor or not anchor.get("href"):
             continue
         title = text(card, ("a.title", "a[class*='title']")) or (anchor.get_text(" ", strip=True) if card.name == "a" else None)
         if not title:
             continue
-        url = str(anchor["href"])
-        if url.startswith("/"):
-            url = "https://www.bing.com" + url
+        url = urljoin("https://www.bing.com", str(anchor["href"]))
         if url in seen:
             continue
         seen.add(url)
@@ -81,19 +72,21 @@ def parse_articles(html: str, limit: int, reference: datetime) -> list[dict[str,
     return results
 
 
-def parse_date(value: str | None, reference: datetime) -> str | None:
-    """Parse Bing relative dates and standard email dates."""
-    if not value:
-        return None
-    lowered = value.casefold()
-    if "hoje" in lowered or "agora" in lowered:
-        return reference.date().isoformat()
-    if "ontem" in lowered:
-        return (reference - timedelta(days=1)).date().isoformat()
-    match = re.search(r"(?P<number>\d+)\s*(?P<unit>d|dia|dias|day|days)\b", lowered)
-    if match:
-        return (reference - timedelta(days=int(match.group("number")))).date().isoformat()
-    try:
-        return parsedate_to_datetime(value).date().isoformat()
-    except (TypeError, ValueError, IndexError):
-        return None
+def _article_anchor(card: Tag) -> Tag | None:
+    """Find an external article link instead of Bing's internal search link."""
+    anchors = [card] if card.name == "a" else card.select("a[href]")
+    external = [anchor for anchor in anchors if not _is_bing_search_url(str(anchor["href"]))]
+    if external:
+        return external[0]
+
+    title_anchor = card.select_one("a.title")
+    if title_anchor and title_anchor.get("href"):
+        return title_anchor
+    return None
+
+
+def _is_bing_search_url(url: str) -> bool:
+    """Return whether a URL points to a Bing News search result."""
+    parsed = urlparse(urljoin("https://www.bing.com", url))
+    hostname = (parsed.hostname or "").casefold()
+    return hostname.endswith("bing.com") and parsed.path.rstrip("/") == "/news/search"

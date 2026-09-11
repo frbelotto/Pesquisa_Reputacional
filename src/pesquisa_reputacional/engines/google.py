@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 from bs4 import BeautifulSoup
 
 from .base import NewsSearchEngine
-from .bing import parse_date, text
+from .parsing import parse_date, text
 
 
 class GoogleNewsClient(NewsSearchEngine):
@@ -28,14 +28,17 @@ class GoogleNewsClient(NewsSearchEngine):
         response, error = self._request(url)
         collected = datetime.now().astimezone()
         if response is None:
-            return [self._outcome(query, collected, "error", error=error)]
+            return [self._outcome("error", error=error)]
         if response.status_code != 200:
             status = "blocked" if response.status_code in {401, 403, 429} else "error"
-            return [self._outcome(query, collected, status, response.status_code, f"HTTP {response.status_code}")]
+            return [self._outcome(status, response.status_code, f"HTTP {response.status_code}")]
         articles = parse_google_articles(response.text, self.limit, collected)
         if not articles:
-            return [self._outcome(query, collected, "no_results", response.status_code)]
-        return [self._outcome(query, collected, "success", response.status_code, article=article) for article in articles]
+            return [self._outcome("no_results", response.status_code)]
+        return [
+            self._outcome("success", response.status_code, article=article)
+            for article in articles
+        ]
 
 
 def parse_google_articles(html: str, limit: int, reference: datetime) -> list[dict[str, object]]:

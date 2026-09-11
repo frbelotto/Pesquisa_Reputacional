@@ -7,7 +7,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TypeAlias
 
 import polars as pl
 from tqdm.auto import tqdm
@@ -21,8 +20,7 @@ from .reports import save_results
 LOGGER = logging.getLogger(__name__)
 
 MARCA_COLUMN = "MARCA"
-QueryTuple: TypeAlias = tuple[str, str, str]
-ArticleRecord: TypeAlias = dict[str, object]
+ArticleRecord = dict[str, object]
 
 
 def _normalize_brand(brand: str) -> str:
@@ -68,7 +66,7 @@ def read_brands(path: Path) -> list[str]:
     )
 
 
-def make_queries(brands: list[str], suffixes: list[str]) -> list[QueryTuple]:
+def make_queries(brands: list[str], suffixes: list[str]) -> list[tuple[str, str, str]]:
     """Create unique brand, suffix and query tuples.
     
     Args:
@@ -78,7 +76,7 @@ def make_queries(brands: list[str], suffixes: list[str]) -> list[QueryTuple]:
     Returns:
         List of (original_brand, suffix, normalized_query_string) tuples.
     """
-    queries: list[QueryTuple] = []
+    queries: list[tuple[str, str, str]] = []
     for brand in brands:
         normalized = _normalize_brand(brand)
         for suffix in suffixes:
@@ -87,7 +85,9 @@ def make_queries(brands: list[str], suffixes: list[str]) -> list[QueryTuple]:
     return queries
 
 
-def _search_worker(item: QueryTuple, client: NewsSearchEngine) -> list[ArticleRecord]:
+def _search_worker(
+    item: tuple[str, str, str], client: NewsSearchEngine
+) -> list[ArticleRecord]:
     """Execute a single search query and enrich results with metadata.
     
     Args:
@@ -115,7 +115,7 @@ def _search_worker(item: QueryTuple, client: NewsSearchEngine) -> list[ArticleRe
 
 
 def collect(
-    queries: list[QueryTuple],
+    queries: list[tuple[str, str, str]],
     client: NewsSearchEngine,
     cache_path: Path | None = None,
     cache_max_age_days: int = CONFIG.cache_max_age_days,
@@ -131,10 +131,11 @@ def collect(
     """
     records: list[ArticleRecord] = []
     cached = load_cache(cache_path, cache_max_age_days) if cache_path else {}
-    pending = [query for query in queries if cache_key(query[2], client) not in cached]
+    query_keys = [(query, cache_key(query[2], client)) for query in queries]
+    pending = [(query, key) for query, key in query_keys if key not in cached]
 
-    for query in queries:
-        records.extend(cached.get(cache_key(query[2], client), []))
+    for _, key in query_keys:
+        records.extend(cached.get(key, []))
 
     with tqdm(
         total=len(queries),
@@ -144,15 +145,16 @@ def collect(
     ) as progress:
         with ThreadPoolExecutor(max_workers=client.concurrency) as executor:
             futures = {
-                executor.submit(_search_worker, query, client): query
-                for query in pending
+                executor.submit(_search_worker, query, client): key
+                for query, key in pending
             }
             for future in as_completed(futures):
-                query = futures[future]
+                key = futures[future]
                 query_records = future.result()
                 records.extend(query_records)
                 if cache_path:
-                    append_cache(cache_path, cache_key(query[2], client), query_records)
+                    # The workers only search; cache writes stay in this main thread.
+                    append_cache(cache_path, key, query_records)
                 progress.update(1)
 
     # Sort for consistent output
