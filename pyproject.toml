@@ -12,9 +12,13 @@ dependencies = [
     "fastexcel>=0.16.0",
     "httpx2>=2.12.0",
     "polars>=1.35.0",
+    "pydantic>=2.0",
     "tqdm>=4.67.0",
     "xlsxwriter>=3.2.9",
 ]
+
+[project.scripts]
+pesquisa-reputacional = "pesquisa_reputacional.app:main"
 
 [dependency-groups]
 dev = [

@@ -7,6 +7,7 @@ from urllib.parse import urljoin, urlencode, urlparse
 
 from bs4 import BeautifulSoup, Tag
 
+from ..model import NewsRecord
 from .base import NewsSearchEngine
 from .parsing import parse_date, text
 
@@ -16,7 +17,7 @@ class BingNewsClient(NewsSearchEngine):
 
     source_name = "bing"
 
-    def search(self, query: str) -> list[dict[str, object]]:
+    def search(self, query: str) -> list[NewsRecord]:
         """Search Bing News and return articles or one audited outcome."""
         url = "https://www.bing.com/news/search?" + urlencode({
             "q": query,
@@ -41,11 +42,11 @@ class BingNewsClient(NewsSearchEngine):
         ]
 
 
-def parse_articles(html: str, limit: int, reference: datetime) -> list[dict[str, object]]:
+def parse_articles(html: str, limit: int, reference: datetime) -> list[NewsRecord]:
     """Parse common Bing News card layouts and deduplicate URLs."""
     soup = BeautifulSoup(html, "html.parser")
     cards = soup.select("div.news-card, div.t_s, article, a.title")
-    results: list[dict[str, object]] = []
+    results: list[NewsRecord] = []
     seen: set[str] = set()
     for card in cards:
         anchor = _article_anchor(card)
@@ -59,14 +60,14 @@ def parse_articles(html: str, limit: int, reference: datetime) -> list[dict[str,
             continue
         seen.add(url)
         published_text = text(card, ("span[class*='time']", "div[class*='time']", "span.algoSlug"))
-        results.append({
-            "título": title,
-            "resumo": text(card, ("div.snippet", "p.snippet", "div[class*='snippet']")),
-            "origem": text(card, ("div.source", "span.source", "div[class*='provider']")),
-            "data_texto": published_text,
-            "data_publicação": parse_date(published_text, reference),
+        results.append(NewsRecord.model_validate({
+            "title": title,
+            "summary": text(card, ("div.snippet", "p.snippet", "div[class*='snippet']")),
+            "origin": text(card, ("div.source", "span.source", "div[class*='provider']")),
+            "publication_text": published_text,
+            "publication_date": parse_date(published_text, reference),
             "link": url,
-        })
+        }))
         if len(results) >= limit:
             break
     return results

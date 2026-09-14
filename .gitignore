@@ -8,13 +8,14 @@ wheels/
 
 #inputs & outputs
 *.xls*
+*.env
 
 # Virtual environments
 .venv
 
 # Test and dependency caches
-.cache/
 .pytest_cache/
 .uv-cache/
 pytest-report.xml
+cache/
 uv.lock

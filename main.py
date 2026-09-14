@@ -1,15 +1,6 @@
-"""Run the reputation research application from the project root."""
+"""Run the installed reputation research application."""
 
-from pathlib import Path
-import sys
-
-
-PROJECT_ROOT = Path(__file__).resolve().parent
-SRC_DIR = PROJECT_ROOT / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
-
-from pesquisa_reputacional import main
+from pesquisa_reputacional.app import main
 
 
 if __name__ == "__main__":

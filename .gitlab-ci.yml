@@ -9,16 +9,14 @@ variables:
   PYTHONUNBUFFERED: "1"
 
 cache:
-  key:
-    files:
-      - uv.lock
+  key: "$CI_COMMIT_REF_SLUG"
   paths:
     - .uv-cache/
 
 unit-tests:
   stage: test
   script:
-    - uv sync --locked --dev
+    - uv sync --dev
     - uv run pytest -q --junitxml=pytest-report.xml
   artifacts:
     when: always

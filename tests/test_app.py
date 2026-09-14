@@ -1,5 +1,6 @@
 """Unit tests for the application workflow, cache and Excel output."""
 
+import json
 import os
 from pathlib import Path
 import time
@@ -10,9 +11,11 @@ import polars as pl
 import pytest
 
 from pesquisa_reputacional.app import collect, make_queries, read_brands, save_results
+from pesquisa_reputacional.cache import cache_key
 from pesquisa_reputacional.config import Config
 from pesquisa_reputacional.engines.base import NewsSearchEngine
 from pesquisa_reputacional.engines.factory import create_engine
+from pesquisa_reputacional.model import NewsRecord
 
 
 class FakeEngine(NewsSearchEngine):
@@ -24,19 +27,16 @@ class FakeEngine(NewsSearchEngine):
         super().__init__(limit=1, days=60, concurrency=2, delay=0, timeout=1, retries=0, proxy=None)
         self.calls: list[str] = []
 
-    def search(self, query: str) -> list[dict[str, object]]:
+    def search(self, query: str) -> list[NewsRecord]:
         self.calls.append(query)
-        return [{
-            "título": query,
-            "resumo": "Resumo",
-            "origem": "Fonte",
-            "data_publicação": None,
-            "data_texto": None,
+        return [NewsRecord.model_validate({
+            "title": query,
+            "summary": "Resumo",
+            "origin": "Fonte",
             "link": f"https://example.com/{len(self.calls)}",
-            "status_http": 200,
+            "http_status": 200,
             "status": "success",
-            "erro": None,
-        }]
+        })]
 
 
 def test_make_queries_combines_brands_and_suffixes() -> None:
@@ -131,24 +131,39 @@ def test_collect_uses_configured_cache_validity(tmp_path: Path) -> None:
     assert second_engine.calls == [query[2]]
 
 
+def test_collect_researches_invalid_cache_records(tmp_path: Path) -> None:
+    """An invalid cache entry is ignored so the query can be collected again."""
+    query = ("A", "fraude", '"A" "fraude"')
+    cache_path = tmp_path / "bing_consultas.jsonl"
+    engine = FakeEngine()
+    key = cache_key(query[2], engine)
+    cache_path.write_text(
+        json.dumps({"chave": key, "registros": [{"status": ["invalid"]}]}),
+        encoding="utf-8",
+    )
+
+    records = collect([query], engine, cache_path)
+
+    assert engine.calls == [query[2]]
+    assert len(records) == 1
+
+
 def test_save_results_writes_expected_columns(tmp_path: Path) -> None:
     """The Excel report contains the Portuguese output contract."""
-    record = {
-        "fonte": "bing",
-        "marca": "MARCA A",
-        "sufixo": "fraude",
-        "consulta": '"MARCA A" "fraude"',
-        "título": "Notícia",
-        "resumo": "Resumo",
-        "origem": "Fonte",
-        "data_publicação": None,
-        "data_texto": "hoje",
+    record = NewsRecord.model_validate({
+        "source": "bing",
+        "brand": "MARCA A",
+        "suffix": "fraude",
+        "query": '"MARCA A" "fraude"',
+        "title": "Notícia",
+        "summary": "Resumo",
+        "origin": "Fonte",
+        "publication_text": "hoje",
         "link": "https://example.com",
-        "data_coleta": "2026-09-10T00:00:00+00:00",
-        "status_http": 200,
+        "collected_at": "2026-09-10T00:00:00+00:00",
+        "http_status": 200,
         "status": "success",
-        "erro": None,
-    }
+    })
 
     output = save_results([record], tmp_path, "bing")
     with warnings.catch_warnings():
@@ -178,6 +193,7 @@ def test_save_results_writes_empty_report_with_expected_columns(tmp_path: Path) 
         )
         frame = pl.read_excel(output)
 
+    assert frame.is_empty()
     assert frame.columns == [
         "fonte", "marca", "sufixo", "consulta", "título", "resumo",
         "origem", "data_publicação", "data_texto", "link", "data_coleta",
@@ -200,10 +216,8 @@ def test_save_results_writes_empty_report_with_expected_columns(tmp_path: Path) 
 )
 def test_config_rejects_invalid_values(field: str, value: Any) -> None:
     """Invalid operational settings fail before network activity starts."""
-    config = Config(**{field: value})
-
     with pytest.raises(ValueError):
-        config.validate()
+        Config(**{field: value})
 
 
 def test_factory_rejects_unknown_engine() -> None:
