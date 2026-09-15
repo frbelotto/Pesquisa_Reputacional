@@ -78,9 +78,9 @@ class TestBingEngine:
 
         result = make_bing_client().search('"Marca" "fraude"')
 
-        assert result[0]["status"] == "success"
-        assert result[0]["título"] == "Notícia de teste"
-        assert result[0]["link"] == "https://example.com/news"
+        assert result[0].status == "success"
+        assert result[0].title == "Notícia de teste"
+        assert result[0].link == "https://example.com/news"
         assert [instance.uses_proxy for instance in MockHttpClient.instances] == [False]
 
     def test_connection_error_without_proxy_returns_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -90,9 +90,9 @@ class TestBingEngine:
 
         result = make_bing_client().search('"Marca" "fraude"')
 
-        assert result[0]["status"] == "error"
-        assert result[0]["status_http"] is None
-        assert "network unavailable" in str(result[0]["erro"])
+        assert result[0].status == "error"
+        assert result[0].http_status is None
+        assert "network unavailable" in str(result[0].error)
 
     def test_connection_error_uses_proxy_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A Bing direct connection error retries through the proxy."""
@@ -102,7 +102,7 @@ class TestBingEngine:
 
         result = make_bing_client(proxy="http://proxy.test:80").search('"Marca" "fraude"')
 
-        assert result[0]["status"] == "success"
+        assert result[0].status == "success"
         assert [instance.uses_proxy for instance in MockHttpClient.instances] == [
             False,
             True,
@@ -116,8 +116,8 @@ class TestBingEngine:
 
         result = make_bing_client(proxy="http://proxy.test:80").search('"Marca" "fraude"')
 
-        assert result[0]["status"] == "error"
-        assert "proxy connection failed" in str(result[0]["erro"])
+        assert result[0].status == "error"
+        assert "proxy connection failed" in str(result[0].error)
         assert [instance.uses_proxy for instance in MockHttpClient.instances] == [
             False,
             True,
@@ -130,7 +130,7 @@ class TestBingEngine:
         result = parse_articles(duplicated_html, 10, datetime(2026, 9, 10))
 
         assert len(result) == 1
-        assert result[0]["data_publicação"] == "2026-08-20"
+        assert result[0].publication_date == "2026-08-20"
 
         def test_parser_prefers_article_url_over_bing_search_url(self) -> None:
                 """The parser ignores Bing search links embedded in a news card."""
@@ -146,7 +146,7 @@ class TestBingEngine:
 
                 result = parse_articles(html, 10, datetime(2026, 9, 10))
 
-                assert result[0]["link"] == "https://example.com/article"
+                assert result[0].link == "https://example.com/article"
 
     def test_parser_returns_no_articles_for_empty_html(self) -> None:
         """The Bing parser returns no articles for empty HTML."""

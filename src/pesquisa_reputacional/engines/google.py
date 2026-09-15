@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 
 from bs4 import BeautifulSoup
 
+from ..model import NewsRecord
 from .base import NewsSearchEngine
 from .parsing import parse_date, text
 
@@ -16,7 +17,7 @@ class GoogleNewsClient(NewsSearchEngine):
 
     source_name = "google"
 
-    def search(self, query: str) -> list[dict[str, object]]:
+    def search(self, query: str) -> list[NewsRecord]:
         """Search Google News and return articles or one audited outcome."""
         url = "https://news.google.com/search?" + urlencode({
             "q": query,
@@ -41,10 +42,10 @@ class GoogleNewsClient(NewsSearchEngine):
         ]
 
 
-def parse_google_articles(html: str, limit: int, reference: datetime) -> list[dict[str, object]]:
+def parse_google_articles(html: str, limit: int, reference: datetime) -> list[NewsRecord]:
     """Parse the common Google News article layout and deduplicate URLs."""
     soup = BeautifulSoup(html, "html.parser")
-    results: list[dict[str, object]] = []
+    results: list[NewsRecord] = []
     seen: set[str] = set()
     for card in soup.select("article"):
         title = text(card, ("h3", "h4", "a[class*='title']"))
@@ -60,14 +61,14 @@ def parse_google_articles(html: str, limit: int, reference: datetime) -> list[di
             continue
         seen.add(url)
         published_text = text(card, ("time", "div[data-time]", "span[class*='time']"))
-        results.append({
-            "título": title,
-            "resumo": text(card, ("p", "div[class*='snippet']")),
-            "origem": text(card, ("div[data-n-tid]", "a[data-n-tid]", "div[class*='source']")),
-            "data_texto": published_text,
-            "data_publicação": parse_date(published_text, reference),
+        results.append(NewsRecord.model_validate({
+            "title": title,
+            "summary": text(card, ("p", "div[class*='snippet']")),
+            "origin": text(card, ("div[data-n-tid]", "a[data-n-tid]", "div[class*='source']")),
+            "publication_text": published_text,
+            "publication_date": parse_date(published_text, reference),
             "link": url,
-        })
+        }))
         if len(results) >= limit:
             break
     return results

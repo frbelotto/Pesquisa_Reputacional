@@ -28,7 +28,7 @@ Aplicação Python que pesquisa marcas parceiras e termos relacionados à reputa
 │   ├── test_google.py           # Testes exclusivos do Google
 │   └── test_parsing.py          # Testes dos helpers compartilhados
 ├── pyproject.toml              # Metadados e dependências do pacote
-└── uv.lock                     # Versões bloqueadas das dependências
+└── README.md                   # Documentação do projeto
 ```
 
 ## Requisitos
@@ -50,25 +50,26 @@ Na raiz do projeto:
 uv sync
 ```
 
-### Opção 2: pip
+### Opção 2: pip no Python da máquina (VDI)
 
-Crie e ative um ambiente virtual e instale o projeto a partir da raiz:
+Em uma VDI dedicada ao projeto, também é possível instalar as dependências
+diretamente no Python disponível na máquina, sem criar `.venv`. Essa opção é
+mais simples para o usuário final. Na raiz do projeto, execute:
 
 ```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install .
+python3.11 -m pip install --user .
 ```
 
-No Windows PowerShell, use o seguinte comando de ativação:
+O parâmetro `--user` instala os pacotes apenas para o usuário atual. Depois da
+instalação, execute normalmente:
 
-```powershell
-.venv\Scripts\Activate.ps1
+```bash
+pesquisa-reputacional
 ```
 
-O projeto não exige o `uv`; o `pip` lê as dependências diretamente do
-`pyproject.toml`.
+O `pip` lê o `pyproject.toml` durante a instalação: ele usa as dependências
+declaradas no projeto e instala também o pacote local. Portanto, não é
+necessário listar manualmente cada biblioteca usada pela aplicação.
 
 ## Execução
 
@@ -77,28 +78,28 @@ A entrada padrão é `parceiros/marcas.xlsx`, e os relatórios são gravados em 
 Com `uv`:
 
 ```bash
-uv run python main.py
+uv run pesquisa-reputacional
 ```
 
-Com o ambiente virtual instalado usando `pip`:
+Com o Python da máquina instalado usando a Opção 2:
 
 ```bash
-python main.py
+python3.11 main.py
 ```
 
 Escolha o mecanismo de notícias com `--source` em qualquer uma das opções
 (os valores aceitos são `bing` e `google`, em letras minúsculas):
 
 ```bash
-uv run python main.py --source bing
-uv run python main.py --source google
+uv run pesquisa-reputacional --source bing
+uv run pesquisa-reputacional --source google
 ```
 
 Ao usar `pip`, os comandos equivalentes são:
 
 ```bash
-python main.py --source bing
-python main.py --source google
+pesquisa-reputacional --source bing
+pesquisa-reputacional --source google
 ```
 
 Os mecanismos disponíveis estão organizados da seguinte forma:
@@ -116,7 +117,7 @@ Para adicionar outro provedor, implemente `NewsSearchEngine` nessa pasta e regis
 
 Todas as configurações operacionais estão em `src/pesquisa_reputacional/config.py`: caminho de entrada, diretório de saída, limite de resultados, período, concorrência, atraso, timeout, tentativas, proxy e sufixos. A linha de comando expõe intencionalmente apenas `--source`. O proxy de fallback padrão (`http://cachebb.proxy:80`) é específico da rede corporativa e pode ser alterado pela variável de ambiente `NEWS_PROXY`.
 
-O aplicativo mantém um cache de recuperação em `.cache/` por padrão. Cada
+O aplicativo mantém um cache de recuperação em `cache/` por padrão. Cada
 consulta concluída, inclusive uma consulta sem resultados ou com falha, é
 escrita imediatamente em um arquivo JSONL, para que uma execução interrompida
 possa reiniciar e pular consultas já registradas. O cache expira após sete dias
@@ -135,8 +136,8 @@ uv run pytest -q
 ## Integração contínua
 
 O repositório inclui `.gitlab-ci.yml`. O GitLab executa o job `unit-tests` a
-cada commit enviado e em pipelines de merge request. O job instala o ambiente
-`uv` bloqueado, executa toda a suíte Pytest e publica o relatório JUnit nos
+cada commit enviado e em pipelines de merge request. O job instala as
+dependências declaradas no `pyproject.toml`, executa toda a suíte Pytest e publica o relatório JUnit nos
 resultados de testes do pipeline.
 
 A planilha deve conter uma coluna `MARCA`. Cada marca é combinada com os seguintes termos: `acusada`, `corrupção`, `denuncia`, `investigada`, `condenada`, `assédio`, `fraude` e `Recuperação Judicial`.

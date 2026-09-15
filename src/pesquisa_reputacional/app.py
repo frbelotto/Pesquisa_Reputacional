@@ -4,7 +4,6 @@
 import argparse
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,12 +14,12 @@ from .cache import append_cache, cache_key, load_cache, remove_cache
 from .config import CONFIG, Config
 from .engines.base import NewsSearchEngine
 from .engines.factory import create_engine
+from .model import NewsRecord
 from .reports import save_results
 
 LOGGER = logging.getLogger(__name__)
 
 MARCA_COLUMN = "MARCA"
-ArticleRecord = dict[str, object]
 
 
 def _normalize_brand(brand: str) -> str:
@@ -87,7 +86,7 @@ def make_queries(brands: list[str], suffixes: list[str]) -> list[tuple[str, str,
 
 def _search_worker(
     item: tuple[str, str, str], client: NewsSearchEngine
-) -> list[ArticleRecord]:
+) -> list[NewsRecord]:
     """Execute a single search query and enrich results with metadata.
     
     Args:
@@ -102,14 +101,13 @@ def _search_worker(
     collected_at = datetime.now(timezone.utc).isoformat()
 
     return [
-        {
-            "fonte": client.source_name,
-            "marca": brand,
-            "sufixo": suffix,
-            "consulta": query,
-            "data_coleta": collected_at,
-            **article,
-        }
+        article.model_copy(update={
+            "source": client.source_name,
+            "brand": brand,
+            "suffix": suffix,
+            "query": query,
+            "collected_at": collected_at,
+        })
         for article in articles
     ]
 
@@ -119,7 +117,7 @@ def collect(
     client: NewsSearchEngine,
     cache_path: Path | None = None,
     cache_max_age_days: int = CONFIG.cache_max_age_days,
-) -> list[ArticleRecord]:
+) -> list[NewsRecord]:
     """Collect queries concurrently and attach collection metadata.
     
     Args:
@@ -129,7 +127,7 @@ def collect(
     Returns:
         Sorted list of article records by marca, sufixo, and título.
     """
-    records: list[ArticleRecord] = []
+    records: list[NewsRecord] = []
     cached = load_cache(cache_path, cache_max_age_days) if cache_path else {}
     query_keys = [(query, cache_key(query[2], client)) for query in queries]
     pending = [(query, key) for query, key in query_keys if key not in cached]
@@ -161,9 +159,9 @@ def collect(
     return sorted(
         records,
         key=lambda row: (
-            str(row["marca"]).casefold(),
-            str(row["sufixo"]).casefold(),
-            str(row.get("título") or ""),
+            str(row.brand).casefold(),
+            str(row.suffix).casefold(),
+            str(row.title or ""),
         ),
     )
 
@@ -224,8 +222,7 @@ def main(config: Config = CONFIG) -> None:
     """
     # Parse arguments and override source if provided
     source = _parse_arguments(config.source)
-    config = replace(config, source=source)
-    config.validate()
+    config = Config.model_validate({**config.model_dump(), "source": source})
 
     # Setup logging
     _setup_logging()

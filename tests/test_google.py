@@ -78,9 +78,9 @@ class TestGoogleEngine:
 
         result = make_google_client().search('"Marca" "fraude"')
 
-        assert result[0]["status"] == "success"
-        assert result[0]["título"] == "Notícia Google"
-        assert result[0]["link"] == "https://news.google.com/articles/teste"
+        assert result[0].status == "success"
+        assert result[0].title == "Notícia Google"
+        assert result[0].link == "https://news.google.com/articles/teste"
         assert [instance.uses_proxy for instance in MockHttpClient.instances] == [False]
 
     def test_connection_error_without_proxy_returns_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -90,9 +90,9 @@ class TestGoogleEngine:
 
         result = make_google_client().search('"Marca" "fraude"')
 
-        assert result[0]["status"] == "error"
-        assert result[0]["status_http"] is None
-        assert "network unavailable" in str(result[0]["erro"])
+        assert result[0].status == "error"
+        assert result[0].http_status is None
+        assert "network unavailable" in str(result[0].error)
 
     def test_connection_error_uses_proxy_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A Google direct connection error retries through the proxy."""
@@ -102,7 +102,7 @@ class TestGoogleEngine:
 
         result = make_google_client(proxy="http://proxy.test:80").search('"Marca" "fraude"')
 
-        assert result[0]["status"] == "success"
+        assert result[0].status == "success"
         assert [instance.uses_proxy for instance in MockHttpClient.instances] == [
             False,
             True,
@@ -116,8 +116,8 @@ class TestGoogleEngine:
 
         result = make_google_client(proxy="http://proxy.test:80").search('"Marca" "fraude"')
 
-        assert result[0]["status"] == "error"
-        assert "proxy connection failed" in str(result[0]["erro"])
+        assert result[0].status == "error"
+        assert "proxy connection failed" in str(result[0].error)
         assert [instance.uses_proxy for instance in MockHttpClient.instances] == [
             False,
             True,
@@ -127,9 +127,20 @@ class TestGoogleEngine:
         """The Google parser follows the normalized output contract."""
         result = parse_google_articles(GOOGLE_HTML, 1, datetime(2026, 9, 10))
 
-        assert result[0]["título"] == "Notícia Google"
-        assert result[0]["origem"] == "Fonte Google"
-        assert result[0]["link"] == "https://news.google.com/articles/teste"
+        assert result[0].title == "Notícia Google"
+        assert result[0].origin == "Fonte Google"
+        assert result[0].link == "https://news.google.com/articles/teste"
+
+    def test_parser_deduplicates_urls(self) -> None:
+        """The Google parser returns only one record for duplicate links."""
+        result = parse_google_articles(
+            GOOGLE_HTML + GOOGLE_HTML,
+            10,
+            datetime(2026, 9, 10),
+        )
+
+        assert len(result) == 1
+        assert result[0].link == "https://news.google.com/articles/teste"
 
     def test_parser_returns_no_articles_for_empty_html(self) -> None:
         """The Google parser returns no articles for empty HTML."""
