@@ -15,11 +15,15 @@ from .config import CONFIG, Config
 from .engines.base import NewsSearchEngine
 from .engines.factory import create_engine
 from .model import NewsRecord
-from .reports import save_results
+from .email import send_report
+from .reports import save_product_results, save_results
 
 LOGGER = logging.getLogger(__name__)
 
 MARCA_COLUMN = "MARCA"
+PRODUTO_COLUMN = "PRODUTO"
+RESPONSIBLE_COLUMN = "RESPONSAVEL"
+EMAIL_COLUMN = "EMAIL"
 
 
 def _normalize_brand(brand: str) -> str:
@@ -63,6 +67,55 @@ def read_brands(path: Path) -> list[str]:
         .get_column("brand")
         .to_list()
     )
+
+
+def read_brand_products(path: Path) -> dict[str, list[str]]:
+    """Read brands and their comma-separated products from the input workbook."""
+    if not path.is_file():
+        raise FileNotFoundError(f"Input workbook not found: {path}")
+    frame = pl.read_excel(path)
+    missing = [column for column in (MARCA_COLUMN, PRODUTO_COLUMN) if column not in frame.columns]
+    if missing:
+        raise ValueError(f"The workbook must contain columns: {', '.join(missing)}")
+
+    result: dict[str, list[str]] = {}
+    for row in frame.select([MARCA_COLUMN, PRODUTO_COLUMN]).iter_rows():
+        brand_value, products_value = row
+        if brand_value is None or products_value is None:
+            continue
+        brand = " ".join(str(brand_value).split()).upper()
+        products = [
+            " ".join(product.split()).upper()
+            for product in str(products_value).replace(";", ",").split(",")
+            if product.strip()
+        ]
+        if not brand or not products:
+            continue
+        result.setdefault(brand, [])
+        result[brand].extend(product for product in products if product not in result[brand])
+    return result
+
+def read_responsibles(path: Path) -> dict[str, tuple[str, str]]:
+    """Read the product-to-responsible mapping workbook."""
+    if not path.is_file():
+        raise FileNotFoundError(f"Responsible workbook not found: {path}")
+    frame = pl.read_excel(path)
+    missing = [
+        column for column in (PRODUTO_COLUMN, RESPONSIBLE_COLUMN, EMAIL_COLUMN)
+        if column not in frame.columns
+    ]
+    if missing:
+        raise ValueError(f"The responsible workbook must contain columns: {', '.join(missing)}")
+
+    result: dict[str, tuple[str, str]] = {}
+    for product, name, email in frame.select(
+        [PRODUTO_COLUMN, RESPONSIBLE_COLUMN, EMAIL_COLUMN]
+    ).iter_rows():
+        if product is None or name is None or email is None:
+            continue
+        normalized_product = " ".join(str(product).split()).upper()
+        result[normalized_product] = (" ".join(str(name).split()), str(email).strip())
+    return result
 
 
 def make_queries(brands: list[str], suffixes: list[str]) -> list[tuple[str, str, str]]:
@@ -231,7 +284,8 @@ def main(config: Config = CONFIG) -> None:
     client = _create_client(config)
 
     # Execute research pipeline
-    brands = read_brands(config.input_path)
+    brand_products = read_brand_products(config.input_path)
+    brands = sorted(brand_products)
     queries = make_queries(brands, config.suffixes)
     cache_path = (
         config.cache_dir / f"{config.source}_consultas.jsonl"
@@ -239,7 +293,41 @@ def main(config: Config = CONFIG) -> None:
         else None
     )
     records = collect(queries, client, cache_path, config.cache_max_age_days)
-    destination = save_results(records, config.output_dir, config.source)
+    records_with_products = [
+        record.model_copy(update={"product": product})
+        for record in records
+        for product in brand_products.get(record.brand or "", [])
+    ]
+    destination = save_results(records_with_products, config.output_dir, config.source)
+    responsibles = read_responsibles(config.responsible_path)
+    active_products = {
+        product for products in brand_products.values() for product in products
+    }
+    missing_products = sorted(
+        active_products - responsibles.keys()
+    )
+    if missing_products:
+        raise ValueError(
+            "No responsible configured for product(s): " + ", ".join(missing_products)
+        )
+    for product in sorted(active_products):
+        product_records = [
+            record.model_copy(update={"product": product})
+            for record in records_with_products
+            if record.product == product
+        ]
+        product_report = save_product_results(
+            product_records, config.output_dir, config.source, product
+        )
+        if config.email_enabled:
+            responsible_name, responsible_email = responsibles[product]
+            send_report(
+                product_report,
+                product,
+                responsible_name,
+                responsible_email,
+                config,
+            )
     remove_cache(cache_path)
 
     LOGGER.info(

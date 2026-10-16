@@ -8,7 +8,8 @@ Aplicação Python que pesquisa marcas parceiras e termos relacionados à reputa
 .
 ├── main.py                    # Launcher da aplicação na raiz
 ├── parceiros/
-│   └── marcas.xlsx              # Planilha de entrada (Gitignore!)
+│   ├── marcas.xlsx              # Planilha de entrada (Gitignore!)
+│   └── responsaveis.xlsx        # Produto, responsável e e-mail (Gitignore!)
 ├── Resultados/                 # Relatórios Excel gerados (Gitignore!)
 ├── src/pesquisa_reputacional/
 │   ├── __init__.py             # Ponto de entrada público do pacote
@@ -115,7 +116,18 @@ src/pesquisa_reputacional/engines/
 
 Para adicionar outro provedor, implemente `NewsSearchEngine` nessa pasta e registre a classe em `factory.py`.
 
-Todas as configurações operacionais estão em `src/pesquisa_reputacional/config.py`: caminho de entrada, diretório de saída, limite de resultados, período, concorrência, atraso, timeout, tentativas, proxy e sufixos. A linha de comando expõe intencionalmente apenas `--source`. O proxy de fallback padrão (`http://cachebb.proxy:80`) é específico da rede corporativa e pode ser alterado pela variável de ambiente `NEWS_PROXY`.
+As configurações operacionais de proxy e e-mail são carregadas automaticamente
+do arquivo `.env` na raiz do projeto ou na pasta pai do projeto. Use
+[.env.example](./.env.example) como
+modelo e não versione o `.env` real, pois ele pode conter configurações
+específicas do ambiente. As variáveis disponíveis são `NEWS_PROXY`,
+`EMAIL_SENDER`, `EMAIL_CC`, `SMTP_HOST` e `SMTP_PORT`. O envio de e-mail
+permanece habilitado no `Config` e não é configurado pelo `.env`.
+Os valores padrão ficam em `src/pesquisa_reputacional/config.py`. As demais
+configurações operacionais estão nesse arquivo: caminho de entrada, cadastro de
+responsáveis, diretório de saída, limite de resultados, período, concorrência,
+atraso, timeout, tentativas e sufixos. A linha de comando expõe
+intencionalmente apenas `--source`.
 
 O aplicativo mantém um cache de recuperação em `cache/` por padrão. Cada
 consulta concluída, inclusive uma consulta sem resultados ou com falha, é
@@ -140,9 +152,22 @@ cada commit enviado e em pipelines de merge request. O job instala as
 dependências declaradas no `pyproject.toml`, executa toda a suíte Pytest e publica o relatório JUnit nos
 resultados de testes do pipeline.
 
-A planilha deve conter uma coluna `MARCA`. Cada marca é combinada com os seguintes termos: `acusada`, `corrupção`, `denuncia`, `investigada`, `condenada`, `assédio`, `fraude` e `Recuperação Judicial`.
+A planilha `parceiros/marcas.xlsx` deve conter as colunas `MARCA` e `PRODUTO`. É possível informar vários produtos na mesma célula, separados por vírgula ou ponto e vírgula. Cada marca é combinada com os seguintes termos: `acusada`, `corrupção`, `denuncia`, `investigada`, `condenada`, `assédio`, `fraude` e `Recuperação Judicial`.
 
-O relatório Excel gerado usa nomes de colunas em português: `fonte`, `marca`, `sufixo`, `consulta`, `título`, `resumo`, `origem`, `data_publicação`, `data_texto`, `link`, `data_coleta`, `status_http`, `status` e `erro`. Nenhum identificador de execução é gerado, pois ele não é necessário para o relatório.
+O arquivo `parceiros/responsaveis.xlsx` deve conter uma linha por produto e as
+colunas `PRODUTO`, `RESPONSAVEL` e `EMAIL`. O nome do produto é normalizado em
+maiúsculas, sem espaços nas extremidades, para o relacionamento com
+`marcas.xlsx`. A execução falha antes do envio se algum produto não tiver
+responsável cadastrado.
+
+O relatório Excel consolidado usa nomes de colunas em português: `fonte`,
+`marca`, `produto`, `sufixo`, `consulta`, `título`, `resumo`, `origem`,
+`data_publicação`, `data_texto`, `link`, `data_coleta`, `status_http`, `status`
+e `erro`. Também é gerado um arquivo por produto em `Resultados/`. Quando
+`email_enabled` está habilitado, cada arquivo por produto é enviado ao
+responsável com `belotto@bb.com.br` em cópia. O remetente e o SMTP podem ser
+alterados pelas variáveis `EMAIL_SENDER`, `EMAIL_CC` e `SMTP_HOST`; para
+desabilitar o envio em uma execução, use `Config(email_enabled=False)`.
 
 ## Observações
 

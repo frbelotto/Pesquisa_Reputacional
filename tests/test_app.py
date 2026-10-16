@@ -6,13 +6,22 @@ from pathlib import Path
 import time
 from typing import Any
 import warnings
+from unittest.mock import patch
 
 import polars as pl
 import pytest
 
-from pesquisa_reputacional.app import collect, make_queries, read_brands, save_results
+from pesquisa_reputacional.app import (
+    collect,
+    make_queries,
+    read_brand_products,
+    read_brands,
+    read_responsibles,
+    save_results,
+)
 from pesquisa_reputacional.cache import cache_key
 from pesquisa_reputacional.config import Config
+from pesquisa_reputacional.email import send_report
 from pesquisa_reputacional.engines.base import NewsSearchEngine
 from pesquisa_reputacional.engines.factory import create_engine
 from pesquisa_reputacional.model import NewsRecord
@@ -69,6 +78,59 @@ def test_read_brands_rejects_missing_marca_column(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="must contain a 'MARCA' column"):
         read_brands(input_path)
+
+
+def test_read_brand_products_splits_products_and_normalizes_values(tmp_path: Path) -> None:
+    """Input products can list multiple responsible areas per brand."""
+    input_path = tmp_path / "marcas.xlsx"
+    pl.DataFrame({
+        "MARCA": [" Casas Bahia ", "Amazon.com.br"],
+        "PRODUTO": ["E2E, AFILIADOS", "afiliados"],
+    }).write_excel(input_path)
+
+    assert read_brand_products(input_path) == {
+        "AMAZON.COM.BR": ["AFILIADOS"],
+        "CASAS BAHIA": ["E2E", "AFILIADOS"],
+    }
+
+
+def test_read_responsibles_reads_product_mapping(tmp_path: Path) -> None:
+    """Responsible names and addresses are keyed by normalized product."""
+    input_path = tmp_path / "responsaveis.xlsx"
+    pl.DataFrame({
+        "PRODUTO": [" afiliados "],
+        "RESPONSAVEL": ["Ana Silva"],
+        "EMAIL": ["ana@example.com"],
+    }).write_excel(input_path)
+
+    assert read_responsibles(input_path) == {
+        "AFILIADOS": ("Ana Silva", "ana@example.com")
+    }
+
+
+def test_send_report_uses_responsible_and_fixed_copy(tmp_path: Path) -> None:
+    """Email delivery addresses the product owner and always copies Belotto."""
+    report = tmp_path / "relatorio.xlsx"
+    report.write_bytes(b"excel content")
+    config = Config(
+        email_sender="sender@example.com",
+        email_cc="belotto@bb.com.br",
+        smtp_host="smtp.example.com",
+    )
+
+    with patch("pesquisa_reputacional.email.smtplib.SMTP") as smtp_class:
+        send_report(report, "AFILIADOS", "Ana Silva", "ana@example.com", config)
+
+    smtp = smtp_class.return_value.__enter__.return_value
+    message = smtp.send_message.call_args.args[0]
+    assert message["To"] == "ana@example.com"
+    assert message["Cc"] == "belotto@bb.com.br"
+    assert message["Subject"] == "Apuração mensal de marcas - AFILIADOS"
+    assert [part.get_filename() for part in message.iter_attachments()] == ["relatorio.xlsx"]
+    assert smtp.send_message.call_args.kwargs["to_addrs"] == [
+        "ana@example.com",
+        "belotto@bb.com.br",
+    ]
 
 
 def test_collect_resumes_from_cache(tmp_path: Path) -> None:
@@ -175,7 +237,7 @@ def test_save_results_writes_expected_columns(tmp_path: Path) -> None:
         frame = pl.read_excel(output)
 
     assert frame.columns == [
-        "fonte", "marca", "sufixo", "consulta", "título", "resumo",
+        "fonte", "marca", "produto", "sufixo", "consulta", "título", "resumo",
         "origem", "data_publicação", "data_texto", "link", "data_coleta",
         "status_http", "status", "erro",
     ]
@@ -195,7 +257,7 @@ def test_save_results_writes_empty_report_with_expected_columns(tmp_path: Path) 
 
     assert frame.is_empty()
     assert frame.columns == [
-        "fonte", "marca", "sufixo", "consulta", "título", "resumo",
+        "fonte", "marca", "produto", "sufixo", "consulta", "título", "resumo",
         "origem", "data_publicação", "data_texto", "link", "data_coleta",
         "status_http", "status", "erro",
     ]

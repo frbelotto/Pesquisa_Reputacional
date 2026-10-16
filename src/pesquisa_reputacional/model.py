@@ -12,6 +12,7 @@ class NewsRecord(BaseModel):
 
     source: str | None = Field(default=None, alias="fonte")
     brand: str | None = Field(default=None, alias="marca")
+    product: str | None = Field(default=None, alias="produto")
     suffix: str | None = Field(default=None, alias="sufixo")
     query: str | None = Field(default=None, alias="consulta")
     title: str | None = Field(default=None, alias="título")
@@ -24,4 +25,3 @@ class NewsRecord(BaseModel):
     http_status: int | None = Field(default=None, alias="status_http")
     status: str | None = None
     error: str | None = Field(default=None, alias="erro")
-
