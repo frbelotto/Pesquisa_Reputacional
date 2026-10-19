@@ -17,5 +17,4 @@ wheels/
 .pytest_cache/
 .uv-cache/
 pytest-report.xml
-cache/
 uv.lock

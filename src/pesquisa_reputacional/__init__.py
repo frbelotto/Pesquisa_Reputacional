@@ -1,4 +1,4 @@
-"""News reputation research package."""
+"""Pacote de pesquisa reputacional de notícias."""
 
 from .app import main
 from .model import NewsRecord

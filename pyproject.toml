@@ -1,7 +1,7 @@
 [project]
 name = "pesquisa-reputacional"
 version = "0.1.0"
-description = "Bing and Google News reputation research for partner brands"
+description = "Bing News reputation research for partner brands"
 readme = "README.md"
 authors = [
     { name = "F3164582 Fabio Radicchi Belotto", email = "belotto@bb.com.br" }
