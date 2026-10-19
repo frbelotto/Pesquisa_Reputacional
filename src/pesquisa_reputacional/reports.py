@@ -1,4 +1,4 @@
-"""Report output for the reputation research workflow."""
+"""Geração de arquivos para o fluxo de pesquisa reputacional."""
 
 from __future__ import annotations
 
@@ -27,27 +27,17 @@ def _frame_from_records(records: list[NewsRecord]) -> pl.DataFrame:
     return frame.select(REPORT_COLUMNS)
 
 
-def save_results(records: list[NewsRecord], output_dir: Path, source: str) -> Path:
-    """Save a timestamped Excel report."""
-    output_dir.mkdir(parents=True, exist_ok=True)
-    frame = _frame_from_records(records)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    destination = output_dir / f"pesquisa_{source}_{timestamp}.xlsx"
-    frame.write_excel(destination, worksheet="Resultados", autofit=True)
-    return destination
-
-
 def save_product_results(
-    records: list[NewsRecord], output_dir: Path, source: str, product: str
+    records: list[NewsRecord], output_dir: Path, product: str
 ) -> Path:
-    """Save the report for one product."""
+    """Salva o relatório de um produto."""
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_product = "".join(
         character if character.isalnum() or character in "-_" else "_"
         for character in product
     ).strip("_") or "produto"
-    destination = output_dir / f"pesquisa_{source}_{safe_product}_{timestamp}.xlsx"
+    destination = output_dir / f"pesquisa_bing_{safe_product}_{timestamp}.xlsx"
     _frame_from_records(records).write_excel(
         destination, worksheet="Resultados", autofit=True
     )

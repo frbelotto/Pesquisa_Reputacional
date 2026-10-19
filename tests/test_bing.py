@@ -1,4 +1,4 @@
-"""Unit tests for the Bing News engine."""
+"""Testes unitários do cliente Bing News."""
 
 from datetime import datetime
 from typing import Any
@@ -6,7 +6,7 @@ from typing import Any
 import httpx2 as httpx
 import pytest
 
-from pesquisa_reputacional.engines.bing import BingNewsClient, parse_articles
+from pesquisa_reputacional.engines.bing import BingNewsClient, parse_articles, parse_date
 
 
 BING_HTML = """
@@ -20,7 +20,7 @@ BING_HTML = """
 
 
 class MockHttpClient:
-    """Context manager that simulates direct and proxy HTTP requests."""
+    """Gerenciador de contexto que simula requisições diretas e via proxy."""
 
     instances: list["MockHttpClient"] = []
     response: httpx.Response | None = None
@@ -48,7 +48,7 @@ class MockHttpClient:
 
 @pytest.fixture(autouse=True)
 def reset_http_mock() -> None:
-    """Reset Bing HTTP mock state between tests."""
+    """Reinicia o estado do mock HTTP do Bing entre os testes."""
     MockHttpClient.instances = []
     MockHttpClient.response = None
     MockHttpClient.error = None
@@ -56,11 +56,10 @@ def reset_http_mock() -> None:
 
 
 def make_bing_client(proxy: str | None = None, retries: int = 0) -> BingNewsClient:
-    """Create a Bing client with fast settings for unit tests."""
+    """Cria um cliente Bing com configurações rápidas para os testes."""
     return BingNewsClient(
         limit=1,
         days=60,
-        concurrency=1,
         delay=0,
         timeout=1,
         retries=retries,
@@ -69,10 +68,10 @@ def make_bing_client(proxy: str | None = None, retries: int = 0) -> BingNewsClie
 
 
 class TestBingEngine:
-    """Tests for BingNewsClient and Bing-specific parsing."""
+    """Testes do BingNewsClient e do parser específico do Bing."""
 
     def test_search_uses_mocked_connection(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A successful mocked Bing response becomes a normalized article."""
+        """Uma resposta simulada bem-sucedida vira um artigo normalizado."""
         MockHttpClient.response = httpx.Response(200, text=BING_HTML)
         monkeypatch.setattr(httpx, "Client", MockHttpClient)
 
@@ -84,7 +83,7 @@ class TestBingEngine:
         assert [instance.uses_proxy for instance in MockHttpClient.instances] == [False]
 
     def test_connection_error_without_proxy_returns_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A Bing connection error is returned as an audited error record."""
+        """Um erro de conexão do Bing retorna um registro de erro auditável."""
         MockHttpClient.error = ConnectionError("network unavailable")
         monkeypatch.setattr(httpx, "Client", MockHttpClient)
 
@@ -95,7 +94,7 @@ class TestBingEngine:
         assert "network unavailable" in str(result[0].error)
 
     def test_connection_error_uses_proxy_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A Bing direct connection error retries through the proxy."""
+        """Um erro de conexão direta do Bing tenta novamente pelo proxy."""
         MockHttpClient.error = ConnectionError("direct connection failed")
         MockHttpClient.response = httpx.Response(200, text=BING_HTML)
         monkeypatch.setattr(httpx, "Client", MockHttpClient)
@@ -109,7 +108,7 @@ class TestBingEngine:
         ]
 
     def test_proxy_connection_error_returns_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A Bing direct and proxy failure is reported without network access."""
+        """Falhas na conexão direta e no proxy são reportadas sem acesso real à rede."""
         MockHttpClient.error = ConnectionError("proxy connection failed")
         MockHttpClient.fail_for_proxy = True
         monkeypatch.setattr(httpx, "Client", MockHttpClient)
@@ -124,7 +123,7 @@ class TestBingEngine:
         ]
 
     def test_parser_deduplicates_urls(self) -> None:
-        """The Bing parser returns only one record for duplicate links."""
+        """O parser do Bing retorna apenas um registro para links duplicados."""
         duplicated_html = BING_HTML + BING_HTML
 
         result = parse_articles(duplicated_html, 10, datetime(2026, 9, 10))
@@ -132,24 +131,69 @@ class TestBingEngine:
         assert len(result) == 1
         assert result[0].publication_date == "2026-08-20"
 
-        def test_parser_prefers_article_url_over_bing_search_url(self) -> None:
-                """The parser ignores Bing search links embedded in a news card."""
-                html = """
-                <div class="news-card">
-                    <a class="title" href="https://www.bing.com/news/search?q=site%3Aexample.com">
-                        Notícia de teste
-                    </a>
-                    <a href="https://example.com/article">Notícia de teste</a>
-                    <span class="time">hoje</span>
-                </div>
-                """
+    def test_parser_prefers_article_url_over_bing_search_url(self) -> None:
+        """O parser ignora links de busca do Bing dentro de um card de notícia."""
+        html = """
+        <div class="news-card">
+            <a class="title" href="https://www.bing.com/news/search?q=site%3Aexample.com">
+                Notícia de teste
+            </a>
+            <a href="https://example.com/article">Notícia de teste</a>
+            <span class="time">hoje</span>
+        </div>
+        """
 
-                result = parse_articles(html, 10, datetime(2026, 9, 10))
+        result = parse_articles(html, 10, datetime(2026, 9, 10))
 
-                assert result[0].link == "https://example.com/article"
+        assert result[0].link == "https://example.com/article"
 
     def test_parser_returns_no_articles_for_empty_html(self) -> None:
-        """The Bing parser returns no articles for empty HTML."""
+        """O parser do Bing não retorna artigos para HTML vazio."""
         result = parse_articles("", 10, datetime(2026, 9, 10))
 
         assert result == []
+
+    def test_parser_extracts_relative_date_from_origin(self) -> None:
+        """Alguns layouts do Bing acrescentam a idade relativa ao nome do veículo."""
+        html = """
+        <div class="news-card">
+          <a class="title" href="https://example.com/article">Notícia</a>
+          <div class="source">InfoMoney 14a</div>
+        </div>
+        """
+
+        result = parse_articles(html, 10, datetime(2026, 9, 10))
+
+        assert result[0].origin == "InfoMoney"
+        assert result[0].publication_text == "14a"
+        assert result[0].publication_date == "2012-09-13"
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("1mês(es)", "2026-08-11"),
+            ("3dia(s)", "2026-09-07"),
+            ("2 horas", "2026-09-09"),
+            ("90 min", "2026-09-09"),
+        ],
+    )
+    def test_parse_date_accepts_bing_relative_suffixes(
+        self, value: str, expected: str
+    ) -> None:
+        reference = datetime(2026, 9, 10, 1, 0)
+        assert parse_date(value, reference) == expected
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("hoje", "2026-09-10"),
+            ("ontem", "2026-09-09"),
+            ("3 dias", "2026-09-07"),
+            ("Wed, 09 Sep 2026 10:00:00 GMT", "2026-09-09"),
+            ("data desconhecida", None),
+            (None, None),
+        ],
+    )
+    def test_parse_date(self, value: str | None, expected: str | None) -> None:
+        """O texto de data do Bing é normalizado para o relatório."""
+        assert parse_date(value, datetime(2026, 9, 10)) == expected

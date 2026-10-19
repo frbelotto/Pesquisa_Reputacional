@@ -1,4 +1,4 @@
-"""Email delivery for product-specific research reports."""
+"""Envio por e-mail dos relatórios de pesquisa por produto."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ def send_report(
     responsible_email: str,
     config: Config,
 ) -> None:
-    """Send one product report to its responsible person."""
+    """Envia o relatório de um produto ao respectivo responsável."""
     message = EmailMessage()
     message["Subject"] = f"Apuração mensal de marcas - {product}"
     message["From"] = config.email_sender
@@ -32,8 +32,8 @@ Solicitamos que avalie se alguma das notícias identificadas tem relevância par
 seu negócio.
 
 Atenciosamente,
-Lukas Barcellos
-Banco do Brasil
+Fábio Belotto
+
 """
     )
     message.add_attachment(

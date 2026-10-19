@@ -1,4 +1,4 @@
-"""Data models shared by news search engines and output adapters."""
+"""Modelos de dados usados pela pesquisa e pelos adaptadores de saída."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class NewsRecord(BaseModel):
-    """Normalized news record used throughout the research pipeline."""
+    """Registro normalizado de notícia usado em todo o fluxo da pesquisa."""
 
     model_config = ConfigDict(populate_by_name=True, frozen=True)
 

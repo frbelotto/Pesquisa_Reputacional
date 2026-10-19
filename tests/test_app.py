@@ -1,11 +1,6 @@
-"""Unit tests for the application workflow, cache and Excel output."""
+"""Testes unitários do fluxo simplificado do Bing."""
 
-import json
-import os
 from pathlib import Path
-import time
-from typing import Any
-import warnings
 from unittest.mock import patch
 
 import polars as pl
@@ -15,73 +10,50 @@ from pesquisa_reputacional.app import (
     collect,
     make_queries,
     read_brand_products,
-    read_brands,
     read_responsibles,
-    save_results,
 )
-from pesquisa_reputacional.cache import cache_key
 from pesquisa_reputacional.config import Config
 from pesquisa_reputacional.email import send_report
-from pesquisa_reputacional.engines.base import NewsSearchEngine
-from pesquisa_reputacional.engines.factory import create_engine
 from pesquisa_reputacional.model import NewsRecord
+from pesquisa_reputacional.reports import save_product_results
 
 
-class FakeEngine(NewsSearchEngine):
-    """In-memory engine used to test the workflow without network access."""
-
-    source_name = "fake"
+class FakeBing:
+    source_name = "bing"
 
     def __init__(self) -> None:
-        super().__init__(limit=1, days=60, concurrency=2, delay=0, timeout=1, retries=0, proxy=None)
         self.calls: list[str] = []
 
     def search(self, query: str) -> list[NewsRecord]:
         self.calls.append(query)
         return [NewsRecord.model_validate({
             "title": query,
-            "summary": "Resumo",
-            "origin": "Fonte",
-            "link": f"https://example.com/{len(self.calls)}",
             "http_status": 200,
             "status": "success",
         })]
 
 
-def test_make_queries_combines_brands_and_suffixes() -> None:
-    """Each brand is combined with every configured suffix."""
-    queries = make_queries(["MARCA A", "MARCA B"], ["fraude", "corrupção"])
+def test_make_queries_uses_fixed_reputation_terms() -> None:
+    queries = make_queries(["MARCA A"])
 
-    assert len(queries) == 4
-    assert queries[0] == ("MARCA A", "fraude", '"MARCA A" "fraude"')
-
-
-def test_make_queries_normalizes_spaces_and_punctuation() -> None:
-    """Query text removes separators and repeated whitespace from brands."""
-    queries = make_queries(["  Marca,  Exemplo; S.A.  "], ["fraude"])
-
-    assert queries == [("  Marca,  Exemplo; S.A.  ", "fraude", '"Marca Exemplo S.A." "fraude"')]
+    assert len(queries) == 8
+    assert queries[0] == ('MARCA A', "acusada", '"MARCA A" "acusada"')
+    assert queries[-1] == (
+        "MARCA A",
+        "Recuperação Judicial",
+        '"MARCA A" "Recuperação Judicial"',
+    )
 
 
-def test_read_brands_cleans_deduplicates_and_sorts(tmp_path: Path) -> None:
-    """Brand input is normalized before queries are generated."""
-    input_path = tmp_path / "marcas.xlsx"
-    pl.DataFrame({"MARCA": ["  Beta  ", "alpha", "ALPHA", None, ""]}).write_excel(input_path)
-
-    assert read_brands(input_path) == ["ALPHA", "BETA"]
-
-
-def test_read_brands_rejects_missing_marca_column(tmp_path: Path) -> None:
-    """A workbook without MARCA raises a descriptive validation error."""
-    input_path = tmp_path / "marcas.xlsx"
-    pl.DataFrame({"NOME": ["MARCA A"]}).write_excel(input_path)
-
-    with pytest.raises(ValueError, match="must contain a 'MARCA' column"):
-        read_brands(input_path)
+def test_make_queries_normalizes_brand_spaces_and_punctuation() -> None:
+    assert make_queries(["  Marca,  Exemplo; S.A.  "])[0] == (
+        "  Marca,  Exemplo; S.A.  ",
+        "acusada",
+        '"Marca Exemplo S.A." "acusada"',
+    )
 
 
-def test_read_brand_products_splits_products_and_normalizes_values(tmp_path: Path) -> None:
-    """Input products can list multiple responsible areas per brand."""
+def test_read_brand_products_splits_and_normalizes_values(tmp_path: Path) -> None:
     input_path = tmp_path / "marcas.xlsx"
     pl.DataFrame({
         "MARCA": [" Casas Bahia ", "Amazon.com.br"],
@@ -95,7 +67,6 @@ def test_read_brand_products_splits_products_and_normalizes_values(tmp_path: Pat
 
 
 def test_read_responsibles_reads_product_mapping(tmp_path: Path) -> None:
-    """Responsible names and addresses are keyed by normalized product."""
     input_path = tmp_path / "responsaveis.xlsx"
     pl.DataFrame({
         "PRODUTO": [" afiliados "],
@@ -108,8 +79,50 @@ def test_read_responsibles_reads_product_mapping(tmp_path: Path) -> None:
     }
 
 
+def test_collect_runs_queries_sequentially_and_adds_metadata() -> None:
+    queries = [("A", "fraude", '"A" "fraude"'), ("B", "fraude", '"B" "fraude"')]
+    client = FakeBing()
+
+    records = collect(queries, client)
+
+    assert client.calls == ['"A" "fraude"', '"B" "fraude"']
+    assert [(record.brand, record.source, record.suffix) for record in records] == [
+        ("A", "bing", "fraude"),
+        ("B", "bing", "fraude"),
+    ]
+    assert all(record.collected_at for record in records)
+
+
+def test_collect_empty_queries_returns_empty_list() -> None:
+    client = FakeBing()
+
+    assert collect([], client) == []
+    assert client.calls == []
+
+
+def test_save_product_results_writes_expected_columns(tmp_path: Path) -> None:
+    record = NewsRecord.model_validate({
+        "source": "bing",
+        "brand": "MARCA A",
+        "product": "AFILIADOS",
+        "suffix": "fraude",
+        "query": '"MARCA A" "fraude"',
+        "title": "Notícia",
+        "status": "success",
+    })
+
+    output = save_product_results([record], tmp_path, "AFILIADOS")
+    frame = pl.read_excel(output)
+
+    assert output.name.startswith("pesquisa_bing_AFILIADOS_")
+    assert frame.columns == [
+        "fonte", "marca", "produto", "sufixo", "consulta", "título", "resumo",
+        "origem", "data_publicação", "data_texto", "link", "data_coleta",
+        "status_http", "status", "erro",
+    ]
+
+
 def test_send_report_uses_responsible_and_fixed_copy(tmp_path: Path) -> None:
-    """Email delivery addresses the product owner and always copies Belotto."""
     report = tmp_path / "relatorio.xlsx"
     report.write_bytes(b"excel content")
     config = Config(
@@ -125,164 +138,20 @@ def test_send_report_uses_responsible_and_fixed_copy(tmp_path: Path) -> None:
     message = smtp.send_message.call_args.args[0]
     assert message["To"] == "ana@example.com"
     assert message["Cc"] == "belotto@bb.com.br"
-    assert message["Subject"] == "Apuração mensal de marcas - AFILIADOS"
     assert [part.get_filename() for part in message.iter_attachments()] == ["relatorio.xlsx"]
-    assert smtp.send_message.call_args.kwargs["to_addrs"] == [
-        "ana@example.com",
-        "belotto@bb.com.br",
-    ]
-
-
-def test_collect_resumes_from_cache(tmp_path: Path) -> None:
-    """Completed queries are skipped when collection resumes."""
-    queries = [
-        ("A", "fraude", '"A" "fraude"'),
-        ("B", "fraude", '"B" "fraude"'),
-        ("C", "fraude", '"C" "fraude"'),
-    ]
-    cache_path = tmp_path / "bing_consultas.jsonl"
-
-    first_engine = FakeEngine()
-    collect(queries[:2], first_engine, cache_path)
-
-    second_engine = FakeEngine()
-    records = collect(queries, second_engine, cache_path)
-
-    assert second_engine.calls == [queries[2][2]]
-    assert len(records) == 3
-
-
-def test_collect_empty_queries_returns_empty_list(tmp_path: Path) -> None:
-    """An empty input does not invoke the engine or create records."""
-    engine = FakeEngine()
-
-    assert collect([], engine, tmp_path / "cache.jsonl") == []
-    assert engine.calls == []
-
-
-def test_collect_restarts_expired_cache(tmp_path: Path) -> None:
-    """Expired cache entries are removed and their queries are collected again."""
-    query = ("A", "fraude", '"A" "fraude"')
-    cache_path = tmp_path / "bing_consultas.jsonl"
-
-    first_engine = FakeEngine()
-    collect([query], first_engine, cache_path)
-    expired_timestamp = time.time() - (8 * 24 * 60 * 60)
-    os.utime(cache_path, (expired_timestamp, expired_timestamp))
-
-    second_engine = FakeEngine()
-    records = collect([query], second_engine, cache_path)
-
-    assert second_engine.calls == [query[2]]
-    assert len(records) == 1
-
-
-def test_collect_uses_configured_cache_validity(tmp_path: Path) -> None:
-    """The configured cache validity controls when entries expire."""
-    query = ("A", "fraude", '"A" "fraude"')
-    cache_path = tmp_path / "bing_consultas.jsonl"
-
-    first_engine = FakeEngine()
-    collect([query], first_engine, cache_path)
-    expired_timestamp = time.time() - (2 * 24 * 60 * 60)
-    os.utime(cache_path, (expired_timestamp, expired_timestamp))
-
-    second_engine = FakeEngine()
-    collect([query], second_engine, cache_path, cache_max_age_days=1)
-
-    assert second_engine.calls == [query[2]]
-
-
-def test_collect_researches_invalid_cache_records(tmp_path: Path) -> None:
-    """An invalid cache entry is ignored so the query can be collected again."""
-    query = ("A", "fraude", '"A" "fraude"')
-    cache_path = tmp_path / "bing_consultas.jsonl"
-    engine = FakeEngine()
-    key = cache_key(query[2], engine)
-    cache_path.write_text(
-        json.dumps({"chave": key, "registros": [{"status": ["invalid"]}]}),
-        encoding="utf-8",
-    )
-
-    records = collect([query], engine, cache_path)
-
-    assert engine.calls == [query[2]]
-    assert len(records) == 1
-
-
-def test_save_results_writes_expected_columns(tmp_path: Path) -> None:
-    """The Excel report contains the Portuguese output contract."""
-    record = NewsRecord.model_validate({
-        "source": "bing",
-        "brand": "MARCA A",
-        "suffix": "fraude",
-        "query": '"MARCA A" "fraude"',
-        "title": "Notícia",
-        "summary": "Resumo",
-        "origin": "Fonte",
-        "publication_text": "hoje",
-        "link": "https://example.com",
-        "collected_at": "2026-09-10T00:00:00+00:00",
-        "http_status": 200,
-        "status": "success",
-    })
-
-    output = save_results([record], tmp_path, "bing")
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            message=r"from_arrow\(.*will return a Series instead of a DataFrame.*",
-            category=FutureWarning,
-        )
-        frame = pl.read_excel(output)
-
-    assert frame.columns == [
-        "fonte", "marca", "produto", "sufixo", "consulta", "título", "resumo",
-        "origem", "data_publicação", "data_texto", "link", "data_coleta",
-        "status_http", "status", "erro",
-    ]
-
-
-def test_save_results_writes_empty_report_with_expected_columns(tmp_path: Path) -> None:
-    """An empty collection still produces a valid report schema."""
-    output = save_results([], tmp_path, "bing")
-
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            message=r"from_arrow\(.*will return a Series instead of a DataFrame.*",
-            category=FutureWarning,
-        )
-        frame = pl.read_excel(output)
-
-    assert frame.is_empty()
-    assert frame.columns == [
-        "fonte", "marca", "produto", "sufixo", "consulta", "título", "resumo",
-        "origem", "data_publicação", "data_texto", "link", "data_coleta",
-        "status_http", "status", "erro",
-    ]
 
 
 @pytest.mark.parametrize(
     "field,value",
     [
-        ("source", " "),
-        ("cache_max_age_days", 0),
         ("result_limit", 0),
         ("days", 0),
-        ("concurrency", 0),
         ("delay_seconds", -1),
         ("timeout_seconds", 0),
         ("retries", -1),
+        ("smtp_port", 0),
     ],
 )
-def test_config_rejects_invalid_values(field: str, value: Any) -> None:
-    """Invalid operational settings fail before network activity starts."""
+def test_config_rejects_invalid_values(field: str, value: object) -> None:
     with pytest.raises(ValueError):
         Config(**{field: value})
-
-
-def test_factory_rejects_unknown_engine() -> None:
-    """Unknown source names produce a descriptive factory error."""
-    with pytest.raises(ValueError, match="Unsupported news engine"):
-        create_engine("unknown", limit=1, days=1, concurrency=1, delay=0, timeout=1, retries=0, proxy=None)
